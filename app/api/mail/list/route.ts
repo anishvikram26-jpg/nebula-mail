@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search')?.trim() || '';
     const unreadOnly = searchParams.get('unread') === 'true';
     const starredOnly = searchParams.get('starred') === 'true';
+    const dateFromParam = searchParams.get('dateFrom')?.trim() || '';
+    const dateToParam = searchParams.get('dateTo')?.trim() || '';
 
     // Construct Prisma where clause strictly scoped to the authenticated user
     const where: Prisma.EmailWhereInput = {
@@ -68,6 +70,22 @@ export async function GET(request: NextRequest) {
         { senderEmail: { contains: search, mode: 'insensitive' } },
         { snippet: { contains: search, mode: 'insensitive' } },
       ];
+    }
+
+    // Date range filter (set by AI assistant)
+    if (dateFromParam || dateToParam) {
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (dateFromParam) {
+        const d = new Date(dateFromParam);
+        if (!isNaN(d.getTime())) dateFilter.gte = d;
+      }
+      if (dateToParam) {
+        const d = new Date(dateToParam);
+        if (!isNaN(d.getTime())) dateFilter.lte = d;
+      }
+      if (Object.keys(dateFilter).length > 0) {
+        where.receivedAt = dateFilter;
+      }
     }
 
     // Execute paginated query and count in parallel

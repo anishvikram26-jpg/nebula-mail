@@ -42,6 +42,8 @@ export function MailList() {
         if (searchQuery) params.set('search', searchQuery);
         if (filters.unreadOnly) params.set('unread', 'true');
         if (filters.starredOnly) params.set('starred', 'true');
+        if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+        if (filters.dateTo) params.set('dateTo', filters.dateTo);
 
         const res = await fetch(`/api/mail/list?${params.toString()}`, {
           signal: controller.signal,
@@ -81,6 +83,8 @@ export function MailList() {
     searchQuery,
     filters.unreadOnly,
     filters.starredOnly,
+    filters.dateFrom,
+    filters.dateTo,
     isSyncing,
     refreshTrigger,
     setPagination,

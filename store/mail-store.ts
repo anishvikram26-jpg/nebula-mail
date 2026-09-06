@@ -28,6 +28,10 @@ export interface SendEmailPayload {
 export interface MailFilters {
   unreadOnly: boolean;
   starredOnly: boolean;
+  /** ISO date string — set by AI date-range search, cleared on resetFilters */
+  dateFrom?: string;
+  /** ISO date string — set by AI date-range search, cleared on resetFilters */
+  dateTo?: string;
 }
 
 export interface MailPaginationState {
@@ -154,7 +158,7 @@ export const useMailStore = create<MailStoreState>((set) => ({
 
   resetFilters: () =>
     set({
-      filters: { unreadOnly: false, starredOnly: false },
+      filters: { unreadOnly: false, starredOnly: false, dateFrom: undefined, dateTo: undefined },
       searchQuery: '',
       pagination: { ...DEFAULT_PAGINATION },
     }),

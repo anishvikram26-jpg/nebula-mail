@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/header';
 import { MailList } from '@/components/mail/mail-list';
 import { EmailDetail } from '@/components/mail/email-detail';
 import { ComposeModal } from '@/components/mail/compose-modal';
+import { AssistantPanel } from '@/components/assistant/assistant-panel';
 import { useMailStore } from '@/store/mail-store';
 
 interface MailShellProps {
@@ -42,8 +43,12 @@ export function MailShell({ user, children }: MailShellProps) {
         </main>
       </div>
 
+      {/* Right-side AI Assistant Panel */}
+      <AssistantPanel />
+
       {/* Floating Compose Modal */}
       <ComposeModal />
     </div>
   );
 }
+
