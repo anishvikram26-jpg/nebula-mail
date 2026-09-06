@@ -7,6 +7,7 @@ import { MailList } from '@/components/mail/mail-list';
 import { EmailDetail } from '@/components/mail/email-detail';
 import { ComposeModal } from '@/components/mail/compose-modal';
 import { AssistantPanel } from '@/components/assistant/assistant-panel';
+import { RealtimeListener } from '@/components/mail/realtime-listener';
 import { useMailStore } from '@/store/mail-store';
 
 interface MailShellProps {
@@ -48,6 +49,9 @@ export function MailShell({ user, children }: MailShellProps) {
 
       {/* Floating Compose Modal */}
       <ComposeModal />
+
+      {/* Real-time background mail synchronization & revalidation coordinator */}
+      <RealtimeListener />
     </div>
   );
 }

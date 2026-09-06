@@ -20,8 +20,11 @@ export interface ServerEnv {
   OPENAI_API_KEY: string;
 
   // Real-time Pub/Sub Webhook
+  GMAIL_PUBSUB_TOPIC?: string;
   GOOGLE_PUBSUB_TOPIC?: string;
   GOOGLE_PUBSUB_VERIFICATION_TOKEN?: string;
+  PUBSUB_SERVICE_ACCOUNT_EMAIL?: string;
+  PUBSUB_VERIFICATION_AUDIENCE?: string;
 
   // Security & Session
   SESSION_SECRET: string;
@@ -79,8 +82,11 @@ export function getServerEnv(): ServerEnv {
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/callback/google',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-    GOOGLE_PUBSUB_TOPIC: process.env.GOOGLE_PUBSUB_TOPIC,
+    GMAIL_PUBSUB_TOPIC: process.env.GMAIL_PUBSUB_TOPIC || process.env.GOOGLE_PUBSUB_TOPIC,
+    GOOGLE_PUBSUB_TOPIC: process.env.GMAIL_PUBSUB_TOPIC || process.env.GOOGLE_PUBSUB_TOPIC,
     GOOGLE_PUBSUB_VERIFICATION_TOKEN: process.env.GOOGLE_PUBSUB_VERIFICATION_TOKEN,
+    PUBSUB_SERVICE_ACCOUNT_EMAIL: process.env.PUBSUB_SERVICE_ACCOUNT_EMAIL,
+    PUBSUB_VERIFICATION_AUDIENCE: process.env.PUBSUB_VERIFICATION_AUDIENCE,
     SESSION_SECRET: process.env.SESSION_SECRET || 'development-fallback-session-secret-change-in-production',
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
   };

@@ -20,6 +20,7 @@ export function MailList() {
     setPage,
     setPagination,
     isSyncing,
+    lastRefreshAt,
   } = useMailStore();
 
   const [emails, setEmails] = useState<MailItemType[]>([]);
@@ -87,6 +88,7 @@ export function MailList() {
     filters.dateTo,
     isSyncing,
     refreshTrigger,
+    lastRefreshAt,
     setPagination,
   ]);
 

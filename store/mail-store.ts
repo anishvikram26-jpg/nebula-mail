@@ -93,6 +93,10 @@ export interface MailStoreState {
   setIsSyncing: (isSyncing: boolean, message?: string | null) => void;
   toggleSidebar: () => void;
   setSidebarOpen: (isOpen: boolean) => void;
+
+  // Real-time synchronization & revalidation
+  lastRefreshAt: number;
+  triggerRefresh: () => void;
 }
 
 const DEFAULT_DRAFT: ComposeDraft = {
@@ -134,6 +138,8 @@ export const useMailStore = create<MailStoreState>((set) => ({
 
   isSyncing: false,
   syncMessage: null,
+
+  lastRefreshAt: 0,
 
   setFolder: (folder) =>
     set({
@@ -242,4 +248,5 @@ export const useMailStore = create<MailStoreState>((set) => ({
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
 
   setSidebarOpen: (isOpen) => set({ isSidebarOpen: isOpen }),
+  triggerRefresh: () => set({ lastRefreshAt: Date.now() }),
 }));
