@@ -1,0 +1,126 @@
+// ==============================================================================
+// Prisma Schema for Nebula AI Mail Application
+// Configured for PostgreSQL
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------------------------
+// User & Authentication Models
+// ------------------------------------------------------------------------------
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  name          String?
+  image         String?
+  accounts      Account[]
+  threads       Thread[]
+  emails        Email[]
+  syncState     SyncState?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("users")
+}
+
+model Account {
+  id                String    @id @default(cuid())
+  userId            String
+  provider          String    // e.g., "google"
+  providerAccountId String    // Google User ID (sub)
+  accessToken       String?   @db.Text
+  refreshToken      String?   @db.Text
+  expiresAt         Int?      // UNIX timestamp in seconds
+  tokenType         String?   // e.g., "Bearer"
+  scope             String?   @db.Text
+  idToken           String?   @db.Text
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+// ------------------------------------------------------------------------------
+// Mail & Conversation Thread Models
+// ------------------------------------------------------------------------------
+
+model Thread {
+  id               String    @id @default(cuid())
+  userId           String
+  providerThreadId String    // Gmail threadId
+  snippet          String?   @db.Text
+  historyId        String?
+  messageCount     Int       @default(1)
+  hasUnread        Boolean   @default(false)
+  isStarred        Boolean   @default(false)
+  lastMessageAt    DateTime
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails           Email[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, providerThreadId])
+  @@index([userId, lastMessageAt])
+  @@map("threads")
+}
+
+model Email {
+  id                String    @id @default(cuid())
+  userId            String
+  threadId          String
+  providerMessageId String    // Gmail message ID
+  providerThreadId  String    // Gmail thread ID reference
+  sender            String    // Display name / formatted sender
+  senderEmail       String    // Parsed email address
+  recipients        String    // Comma-separated or serialized recipient list
+  cc                String?   @db.Text
+  bcc               String?   @db.Text
+  subject           String
+  bodyText          String?   @db.Text
+  bodyHtml          String?   @db.Text
+  snippet           String?   @db.Text
+  receivedAt        DateTime
+  sentAt            DateTime?
+  isRead            Boolean   @default(false)
+  isStarred         Boolean   @default(false)
+  labels            String[]  @default([]) // e.g. ["INBOX", "UNREAD", "SENT", "STARRED"]
+  thread            Thread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, providerMessageId])
+  @@index([userId, receivedAt])
+  @@index([userId, threadId])
+  @@index([threadId])
+  @@map("emails")
+}
+
+// ------------------------------------------------------------------------------
+// Synchronization State Model
+// ------------------------------------------------------------------------------
+
+model SyncState {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  historyId        String?   // Latest Gmail historyId processed
+  lastSyncedAt     DateTime? // Timestamp of last completed sync
+  watchExpiration  DateTime? // Gmail Pub/Sub watch expiration timestamp
+  watchResourceId  String?   // Gmail watch resource ID if applicable
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("sync_states")
+}
