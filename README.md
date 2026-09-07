@@ -226,3 +226,18 @@ npm run build
    Google Cloud Pub/Sub push delivery is near-instantaneous (typically 1–3 seconds). The frontend incorporates a non-intrusive 45-second revalidation interval and visibility change triggers as a resilient fallback in case of transient webhook delivery delays.
 3. **Label Support**:
    The default watch configuration monitors the `INBOX` label. Changes made outside of monitored labels (such as drafts edited directly in Gmail web) are synchronized during manual refresh or full sync.
+
+
+
+
+   ## Live Demo
+
+🔗 **Deployed Application:** https://nebula-mail.vercel.app/
+
+## Output Screenshots
+
+📸 **Screenshots:** https://drive.google.com/drive/folders/1YQ4gTM9x4CVaQodtJ-FxN3J2ocHidQGz?usp=drive_link
+
+## Output Screen Recording
+
+🎥 **Screen Recording:** https://drive.google.com/file/d/1sjTK8_VA1s0Ao5b8zD904l9ILFAq0KPi/view?usp=drive_link
