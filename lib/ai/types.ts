@@ -1,7 +1,7 @@
 /**
  * AI Assistant types — Phase 8
  * Shared between server (chat route) and client (action dispatcher).
- * No OpenAI SDK types leak into this file — it stays isomorphic.
+ * No LLM provider SDK types leak into this file — it stays isomorphic.
  */
 
 import { MailFolder } from '@/lib/gmail/types';

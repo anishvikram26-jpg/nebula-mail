@@ -1,5 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * Phase 8 — AI Assistant Tests
+ * AI Assistant Tests — Google Gemini API Migration
  *
  * Tests cover:
  * 1. Natural language compose action parsing
@@ -14,8 +15,11 @@
  * 10. Unauthorized AI API request
  * 11. Empty search results
  * 12. Prompt/tool safety validation
+ * 13. Missing GEMINI_API_KEY handling
+ * 14. Gemini API error handling
+ * 15. Summarize email tool execution
  *
- * OpenAI API and Prisma are mocked — no real API calls are made.
+ * Google Gemini API (@google/genai) and Prisma are mocked — no real API calls are made.
  * Gmail send is never called by the AI directly — only the compose store is opened.
  */
 
@@ -27,26 +31,31 @@ import { useMailStore } from '@/store/mail-store';
 import { useAssistantStore } from '@/store/assistant-store';
 
 // ── Hoist mock fn references so vi.mock factory can close over them ───────────
-// This is the correct Vitest pattern for ESM mocks that need per-test control.
-const { mockOpenAICreate } = vi.hoisted(() => {
-  // Set the env var BEFORE any module is loaded — including the AI chat route,
-  // which checks process.env.OPENAI_API_KEY at singleton initialisation time.
-  process.env.OPENAI_API_KEY = 'test-openai-key-for-vitest';
+const { mockGenerateContent } = vi.hoisted(() => {
+  process.env.GEMINI_API_KEY = 'test-gemini-key-for-vitest';
   return {
-    mockOpenAICreate: vi.fn(),
+    mockGenerateContent: vi.fn(),
   };
 });
 
-// ── Mock OpenAI SDK ───────────────────────────────────────────────────────────
-vi.mock('openai', () => {
-  class OpenAI {
-    chat = {
-      completions: {
-        create: mockOpenAICreate,
-      },
+// ── Mock @google/genai SDK ───────────────────────────────────────────────────
+vi.mock('@google/genai', () => {
+  class GoogleGenAI {
+    models = {
+      generateContent: mockGenerateContent,
     };
   }
-  return { default: OpenAI };
+  return {
+    GoogleGenAI,
+    Type: {
+      OBJECT: 'OBJECT',
+      STRING: 'STRING',
+      NUMBER: 'NUMBER',
+      INTEGER: 'INTEGER',
+      BOOLEAN: 'BOOLEAN',
+      ARRAY: 'ARRAY',
+    },
+  };
 });
 
 // ── Mock Prisma ───────────────────────────────────────────────────────────────
@@ -90,20 +99,24 @@ function makeRequest(message: string, context = {}) {
   });
 }
 
-// ── Helper: mock OpenAI tool call response ────────────────────────────────────
-function mockToolCall(toolName: string, args: Record<string, unknown>) {
-  mockOpenAICreate.mockResolvedValue({
-    choices: [
+// ── Helper: mock Gemini tool call response ────────────────────────────────────
+function mockToolCall(toolName: string, args: Record<string, unknown> | string) {
+  mockGenerateContent.mockResolvedValue({
+    text: '',
+    functionCalls: [
       {
-        message: {
-          content: null,
-          tool_calls: [
+        name: toolName,
+        args,
+      },
+    ],
+    candidates: [
+      {
+        content: {
+          parts: [
             {
-              id: 'call_test_1',
-              type: 'function',
-              function: {
+              functionCall: {
                 name: toolName,
-                arguments: JSON.stringify(args),
+                args,
               },
             },
           ],
@@ -113,14 +126,15 @@ function mockToolCall(toolName: string, args: Record<string, unknown>) {
   });
 }
 
-// ── Helper: mock OpenAI text response ────────────────────────────────────────
+// ── Helper: mock Gemini text response ─────────────────────────────────────────
 function mockTextResponse(text: string) {
-  mockOpenAICreate.mockResolvedValue({
-    choices: [
+  mockGenerateContent.mockResolvedValue({
+    text,
+    functionCalls: [],
+    candidates: [
       {
-        message: {
-          content: text,
-          tool_calls: [],
+        content: {
+          parts: [{ text }],
         },
       },
     ],
@@ -129,20 +143,19 @@ function mockTextResponse(text: string) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('Phase 8 — AI Assistant', () => {
+describe('Phase 8 / Gemini Migration — AI Assistant', () => {
   beforeEach(() => {
-    // Explicitly reset each mock without calling vi.clearAllMocks()
-    // (which in Vitest 4 also nukes mockResolvedValue implementations).
+    process.env.GEMINI_API_KEY = 'test-gemini-key-for-vitest';
 
-    // Reset OpenAI and set safe default (text-only, no tool call).
-    // Individual tests override with mockToolCall() / mockTextResponse().
-    mockOpenAICreate.mockReset();
-    mockOpenAICreate.mockResolvedValue({
-      choices: [
+    // Reset Gemini mock and set safe default
+    mockGenerateContent.mockReset();
+    mockGenerateContent.mockResolvedValue({
+      text: 'Default test AI response.',
+      functionCalls: [],
+      candidates: [
         {
-          message: {
-            content: 'Default test AI response.',
-            tool_calls: [],
+          content: {
+            parts: [{ text: 'Default test AI response.' }],
           },
         },
       ],
@@ -154,7 +167,6 @@ describe('Phase 8 — AI Assistant', () => {
     // Default Prisma findFirst — no email found
     vi.spyOn(prismaModule.prisma.email, 'findFirst').mockResolvedValue(null);
   });
-
 
   // ── TEST 1: Unauthorized request ──────────────────────────────────────────
   describe('10. Unauthorized AI API request', () => {
@@ -220,7 +232,6 @@ describe('Phase 8 — AI Assistant', () => {
       const req = makeRequest('Write an email');
       const res = await aiChatHandler(req);
       const json = await res.json();
-      // Only valid strings remain
       expect(json.action?.args.to).toEqual(['valid@example.com']);
     });
   });
@@ -262,11 +273,9 @@ describe('Phase 8 — AI Assistant', () => {
       const to = new Date(range!.dateTo);
       const now = new Date();
 
-      // dateFrom should be ~10 days ago
       const diffDays = (now.getTime() - from.getTime()) / 86400000;
       expect(diffDays).toBeGreaterThanOrEqual(9);
       expect(diffDays).toBeLessThanOrEqual(11);
-      // dateTo should be today
       expect(to.toDateString()).toBe(now.toDateString());
     });
 
@@ -274,7 +283,6 @@ describe('Phase 8 — AI Assistant', () => {
       const range = resolveDatePhrase('this week');
       expect(range).not.toBeNull();
       const from = new Date(range!.dateFrom);
-      // from should be Monday
       expect(from.getDay()).toBe(1); // Monday
     });
 
@@ -299,7 +307,6 @@ describe('Phase 8 — AI Assistant', () => {
       const res = await aiChatHandler(req);
       const json = await res.json();
       expect(json.action?.type).toBe('search_emails');
-      // Server must have computed dateFrom/dateTo from the phrase
       expect(json.action?.args.dateFrom).toBeTruthy();
       expect(json.action?.args.dateTo).toBeTruthy();
       expect(json.action?.args.datePhrase).toBe('last 10 days');
@@ -364,7 +371,6 @@ describe('Phase 8 — AI Assistant', () => {
       const res = await aiChatHandler(req);
       const json = await res.json();
       expect(json.action?.args.resolvedEmailId).toBeNull();
-      // Should report honest "not found" message
       expect(json.message).toContain('find');
     });
   });
@@ -374,7 +380,6 @@ describe('Phase 8 — AI Assistant', () => {
     it('should build reply draft when email is open in context', async () => {
       mockToolCall('prepare_reply', {});
 
-      // Server fetches the email from DB for context
       vi.spyOn(prismaModule.prisma.email, 'findFirst').mockResolvedValue({
         id: 'email_ctx_1',
         sender: 'Sarah Jones',
@@ -413,13 +418,11 @@ describe('Phase 8 — AI Assistant', () => {
 
     it('should return helpful message when no email is open', async () => {
       mockToolCall('prepare_reply', {});
-      // No email in context, findFirst returns null
       vi.spyOn(prismaModule.prisma.email, 'findFirst').mockResolvedValue(null);
 
       const req = makeRequest('Reply to this', { selectedEmailId: null });
       const res = await aiChatHandler(req);
       const json = await res.json();
-      // Should not return a prepare_reply action — no email to reply to
       expect(json.action).toBeNull();
       expect(json.message).toMatch(/open an email|select/i);
     });
@@ -438,24 +441,18 @@ describe('Phase 8 — AI Assistant', () => {
       const res = await aiChatHandler(req);
       const json = await res.json();
 
-      // Must return propose_send_email action (opens compose)
       expect(json.action?.type).toBe('propose_send_email');
       expect(json.action?.args.to).toContain('john@example.com');
-
-      // The route handler must NOT have called fetch('/api/mail/send')
-      // (no spy needed — the route never calls fetch internally)
     });
 
     it('propose_send_email with missing subject should fail validation', async () => {
       mockToolCall('propose_send_email', {
         to: ['john@example.com'],
-        // Missing subject and body
       });
 
       const req = makeRequest('Send something to john');
       const res = await aiChatHandler(req);
       const json = await res.json();
-      // Validation failure — action should be null
       expect(json.action).toBeNull();
     });
   });
@@ -463,22 +460,12 @@ describe('Phase 8 — AI Assistant', () => {
   // ── TEST 10: Invalid AI tool arguments ───────────────────────────────────
   describe('9. Invalid AI tool arguments', () => {
     it('should reject unknown tool names', async () => {
-      mockOpenAICreate.mockResolvedValue({
-        choices: [
+      mockGenerateContent.mockResolvedValue({
+        text: '',
+        functionCalls: [
           {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_unknown',
-                  type: 'function',
-                  function: {
-                    name: 'delete_all_emails', // not in our tool list
-                    arguments: '{}',
-                  },
-                },
-              ],
-            },
+            name: 'delete_all_emails',
+            args: {},
           },
         ],
       });
@@ -490,23 +477,13 @@ describe('Phase 8 — AI Assistant', () => {
       expect(json.message).toMatch(/invalid action|rephrasing/i);
     });
 
-    it('should reject malformed JSON in tool arguments', async () => {
-      mockOpenAICreate.mockResolvedValue({
-        choices: [
+    it('should reject malformed JSON in stringified tool arguments', async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: '',
+        functionCalls: [
           {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: 'call_bad',
-                  type: 'function',
-                  function: {
-                    name: 'navigate_folder',
-                    arguments: '{invalid json{{',
-                  },
-                },
-              ],
-            },
+            name: 'navigate_folder',
+            args: '{invalid json{{' as any,
           },
         ],
       });
@@ -523,7 +500,6 @@ describe('Phase 8 — AI Assistant', () => {
       const req = makeRequest('Show me the secret folder');
       const res = await aiChatHandler(req);
       const json = await res.json();
-      // Invalid folder should be rejected
       expect(json.action).toBeNull();
     });
   });
@@ -538,11 +514,11 @@ describe('Phase 8 — AI Assistant', () => {
       const res = await aiChatHandler(req);
       const json = await res.json();
       expect(json.action?.args.resolvedEmailId).toBeNull();
-      expect(json.message).not.toContain('Opening'); // should not claim success
+      expect(json.message).not.toContain('Opening');
     });
   });
 
-  // ── TEST 12: Prompt/tool safety ──────────────────────────────────────────
+  // ── TEST 12: Prompt/tool safety validation ───────────────────────────────
   describe('12. Prompt and tool safety validation', () => {
     it('should return 400 for empty message', async () => {
       const req = new NextRequest('http://localhost:3000/api/ai/chat', {
@@ -581,12 +557,59 @@ describe('Phase 8 — AI Assistant', () => {
       const req = makeRequest('Open email from Attacker');
       await aiChatHandler(req);
 
-      // Verify the DB call included the authenticated user's ID
       expect(findFirstSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({ userId: mockUser.id }),
         })
       );
+    });
+  });
+
+  // ── TEST 13: Gemini error handling & missing API key ─────────────────────
+  describe('13. Gemini error handling', () => {
+    it('should return 500 when Gemini API throws an error', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('Google GenAI rate limit exceeded'));
+
+      const req = makeRequest('Help me with something');
+      const res = await aiChatHandler(req);
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toContain('unavailable');
+    });
+
+    it('should return configuration error when GEMINI_API_KEY is missing', async () => {
+      delete process.env.GEMINI_API_KEY;
+      mockGenerateContent.mockRejectedValue(new Error('GEMINI_API_KEY is not configured'));
+
+      const req = makeRequest('Help me');
+      const res = await aiChatHandler(req);
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toContain('GEMINI_API_KEY');
+    });
+
+    it('should support summarize_email tool call with context', async () => {
+      // First call returns summarize_email tool call
+      mockGenerateContent.mockResolvedValueOnce({
+        text: '',
+        functionCalls: [{ name: 'summarize_email', args: { scope: 'email' } }],
+      });
+      // Second call (summary text generation) returns the summary
+      mockGenerateContent.mockResolvedValueOnce({
+        text: 'This email is a project status update highlighting key deliverables.',
+        functionCalls: [],
+      });
+
+      const req = makeRequest('Summarize this email', {
+        selectedEmailId: 'email_summary_1',
+      });
+      const res = await aiChatHandler(req);
+      const json = await res.json();
+
+      expect(json.action?.type).toBe('summarize_email');
+      expect(json.message).toContain('project status update');
     });
   });
 

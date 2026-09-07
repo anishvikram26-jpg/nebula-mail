@@ -16,8 +16,9 @@ export interface ServerEnv {
   GOOGLE_CLIENT_SECRET: string;
   GOOGLE_REDIRECT_URI: string;
 
-  // OpenAI
-  OPENAI_API_KEY: string;
+  // Google Gemini API
+  GEMINI_API_KEY: string;
+  GEMINI_MODEL?: string;
 
   // Real-time Pub/Sub Webhook
   GMAIL_PUBSUB_TOPIC?: string;
@@ -38,7 +39,7 @@ const REQUIRED_SERVER_VARS: (keyof ServerEnv)[] = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_REDIRECT_URI',
-  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
   'SESSION_SECRET',
   'NEXT_PUBLIC_APP_URL',
 ];
@@ -81,7 +82,8 @@ export function getServerEnv(): ServerEnv {
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/auth/callback/google',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
+    GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.6-flash',
     GMAIL_PUBSUB_TOPIC: process.env.GMAIL_PUBSUB_TOPIC || process.env.GOOGLE_PUBSUB_TOPIC,
     GOOGLE_PUBSUB_TOPIC: process.env.GMAIL_PUBSUB_TOPIC || process.env.GOOGLE_PUBSUB_TOPIC,
     GOOGLE_PUBSUB_VERIFICATION_TOKEN: process.env.GOOGLE_PUBSUB_VERIFICATION_TOKEN,

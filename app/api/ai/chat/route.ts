@@ -1,26 +1,27 @@
 /**
  * POST /api/ai/chat
  *
- * Secure server-side AI chat endpoint.
+ * Secure server-side AI chat endpoint using Google Gemini API (@google/genai).
  * - Authenticates the user via session cookie
  * - Accepts application context from the client (folder, selected email, filters)
  * - Fetches email detail from Prisma when needed (strictly scoped to userId)
- * - Calls OpenAI with structured tool definitions
+ * - Calls Google Gemini via Gemini adapter with structured function declarations
  * - Validates and resolves tool arguments server-side
- * - Returns { message, action } — never raw OpenAI response
+ * - Returns { message, action } — never raw LLM response
  *
- * SECURITY: OpenAI API key is never sent to the browser. All DB access is scoped to
- * the authenticated userId. AI-generated arguments are validated before returning.
+ * SECURITY: GEMINI_API_KEY is server-only and never sent to the browser.
+ * All DB access is scoped to the authenticated userId. AI-generated arguments
+ * are validated before returning.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { Prisma } from '@prisma/client';
 import { getCurrentUser } from '@/lib/auth/middleware';
 import { prisma } from '@/lib/db/prisma';
-import { AI_TOOLS, VALID_TOOL_NAMES } from '@/lib/ai/tools';
+import { VALID_TOOL_NAMES } from '@/lib/ai/tools';
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { resolveDatePhrase } from '@/lib/ai/date-utils';
+import { generateAssistantResponse, generateEmailSummary } from '@/lib/ai/gemini-chat';
 import type {
   AIChatRequest,
   AIChatResponse,
@@ -33,19 +34,6 @@ import type {
   PrepareReplyArgs,
 } from '@/lib/ai/types';
 import { MailFolder } from '@/lib/gmail/types';
-
-// Singleton OpenAI client — key is server-only
-let _openai: OpenAI | null = null;
-function getOpenAI(): OpenAI {
-  if (!_openai) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is not set');
-    }
-    _openai = new OpenAI({ apiKey });
-  }
-  return _openai;
-}
 
 const VALID_FOLDERS = new Set<MailFolder>(['inbox', 'sent', 'starred', 'drafts', 'trash']);
 
@@ -63,7 +51,7 @@ function sanitizeOptionalString(val: unknown): string | undefined {
 }
 
 /**
- * Validates and sanitizes raw tool arguments parsed from the OpenAI response.
+ * Validates and sanitizes raw tool arguments parsed from the Gemini response.
  * Never trusts model-generated arguments blindly.
  */
 function validateToolArgs(toolName: string, rawArgs: Record<string, unknown>): AIAction | null {
@@ -325,35 +313,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // ── Build system prompt ────────────────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(enrichedContext);
 
-  // ── Call OpenAI ───────────────────────────────────────────────────────────
+  // ── Call Gemini via Adapter ────────────────────────────────────────────────
   try {
-    const openai = getOpenAI();
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message.trim() },
-      ],
-      tools: AI_TOOLS,
-      tool_choice: 'auto',
-      max_tokens: 500,
-      temperature: 0.2,
+    const geminiResult = await generateAssistantResponse({
+      message: message.trim(),
+      systemPrompt,
     });
 
-    const choice = completion.choices[0];
-    if (!choice) {
-      return NextResponse.json<AIChatResponse>({
-        message: 'The AI returned an empty response. Please try again.',
-        action: null,
-      });
-    }
-
-    const assistantMessage = choice.message;
-
     // ── Text-only response (no tool call) ────────────────────────────────────
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      const textContent = assistantMessage.content?.trim() || 'I can help with that. Please provide more details.';
+    if (!geminiResult.functionCalls || geminiResult.functionCalls.length === 0) {
+      const textContent =
+        geminiResult.text?.trim() ||
+        'I can help with that. Please provide more details.';
       return NextResponse.json<AIChatResponse>({
         message: textContent,
         action: null,
@@ -361,18 +332,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // ── Tool call response ────────────────────────────────────────────────────
-    const toolCall = assistantMessage.tool_calls[0];
-
-    // OpenAI v7: ChatCompletionMessageToolCall is a union — narrow to function type
-    if (toolCall.type !== 'function') {
-      console.warn('[AI Chat] Model returned non-function tool call type:', toolCall.type);
-      return NextResponse.json<AIChatResponse>({
-        message: 'The AI attempted an unsupported action. Please try again.',
-        action: null,
-      });
-    }
-
-    const toolName = toolCall.function.name;
+    const toolCall = geminiResult.functionCalls[0];
+    const toolName = toolCall.name;
 
     // Reject unknown tool names
     if (!VALID_TOOL_NAMES.has(toolName as Parameters<typeof VALID_TOOL_NAMES.has>[0])) {
@@ -386,7 +347,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Parse and validate tool arguments
     let rawArgs: Record<string, unknown>;
     try {
-      rawArgs = JSON.parse(toolCall.function.arguments || '{}');
+      rawArgs =
+        typeof toolCall.args === 'string'
+          ? JSON.parse(toolCall.args)
+          : (toolCall.args || {});
     } catch {
       return NextResponse.json<AIChatResponse>({
         message: 'The AI returned malformed arguments. Please try again.',
@@ -458,21 +422,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         });
       }
 
-      // Ask the model for a text summary using the email context already in the system prompt
-      const summaryCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          {
-            role: 'user',
-            content: `Please provide a concise 3-5 sentence summary of the currently open email described in the context. Focus on key information, action items, and tone. Do not invent any information not present in the context.`,
-          },
-        ],
-        max_tokens: 300,
-        temperature: 0.1,
+      const summary = await generateEmailSummary({
+        prompt:
+          'Please provide a concise 3-5 sentence summary of the currently open email described in the context. Focus on key information, action items, and tone. Do not invent any information not present in the context.',
+        systemPrompt,
       });
 
-      const summary = summaryCompletion.choices[0]?.message?.content?.trim() || 'Could not generate summary.';
       return NextResponse.json<AIChatResponse>({
         message: summary,
         action: validatedAction,
@@ -488,7 +443,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     };
 
     const responseMessage =
-      assistantMessage.content?.trim() ||
+      geminiResult.text?.trim() ||
       confirmationMessages[toolName] ||
       'Done.';
 
@@ -499,6 +454,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown AI error';
     console.error('[AI Chat Error]', msg);
+
+    if (msg.includes('GEMINI_API_KEY')) {
+      return NextResponse.json(
+        {
+          error: 'AI Assistant configuration error: GEMINI_API_KEY is not configured.',
+        },
+        { status: 500 }
+      );
+    }
 
     // Never expose stack traces or internal errors
     return NextResponse.json(

@@ -94,6 +94,13 @@ Nebula Mail is a modern, responsive email client integrated with Gmail API, Post
 - **Visibility Aware**: Pauses polling when the tab is hidden to conserve bandwidth and CPU. Immediately triggers an update when the user switches back to the tab.
 - **Non-Destructive**: Never disrupts user work — preserves open compose drafts, selected emails, and AI copilot state.
 
+### 6. AI Assistant Copilot (`lib/ai/gemini.ts`, `lib/ai/gemini-chat.ts`, `lib/ai/tools.ts`, `app/api/ai/chat/route.ts`)
+- Powered by Google Gemini via the official `@google/genai` SDK (`GoogleGenAI`).
+- **Default Model**: `gemini-3.6-flash` (configurable via `GEMINI_MODEL`).
+- **Function Calling Declarations**: 7 action-oriented tools (`navigate_folder`, `search_emails`, `select_email`, `open_compose`, `prepare_reply`, `summarize_email`, `propose_send_email`).
+- **Strict Security & Human Confirmation**: The AI **never** directly sends emails. The `propose_send_email` action prepares the email proposal and triggers the frontend human confirmation dialog (`SendConfirmation`) before any Gmail API send operation occurs.
+- **Server-Side Protection**: `GEMINI_API_KEY` remains strictly server-side and is never exposed to the client or bundled in browser code.
+
 ---
 
 ## Environment Configuration
@@ -109,8 +116,10 @@ GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET="your-client-secret"
 GOOGLE_REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
 
-# OpenAI
-OPENAI_API_KEY="sk-proj-..."
+# Google Gemini API
+GEMINI_API_KEY="your-gemini-api-key"
+# Optional Gemini model override (defaults to gemini-3.6-flash)
+# GEMINI_MODEL="gemini-3.6-flash"
 
 # Session Security
 SESSION_SECRET="your-32-byte-secure-random-session-secret"
@@ -160,6 +169,29 @@ To receive push notifications from Gmail in staging or production:
    ngrok http 3000
    # Update the push subscription endpoint to: https://<ngrok-subdomain>.ngrok-free.app/api/webhooks/gmail?token=your-custom-webhook-secret-token
    ```
+
+---
+
+## Google Gemini AI Assistant Setup Guide
+
+The AI Copilot in Nebula Mail uses Google's official `@google/genai` SDK and the `gemini-3.6-flash` model.
+
+### 1. Obtain a Gemini API Key
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey).
+2. Sign in with your Google account.
+3. Click **Create API Key** and copy the generated key.
+
+### 2. Configure Environment Variables
+Add the key to your `.env.local` file:
+```env
+# Required for AI Assistant features
+GEMINI_API_KEY="AIzaSy..."
+
+# Optional model override (defaults to gemini-3.6-flash)
+# GEMINI_MODEL="gemini-3.6-flash"
+```
+
+> **Security Note:** `GEMINI_API_KEY` is loaded strictly server-side in API routes. It is never prefixed with `NEXT_PUBLIC_` and is never exposed to the client or browser bundles.
 
 ---
 
